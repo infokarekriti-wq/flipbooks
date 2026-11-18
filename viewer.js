@@ -130,12 +130,17 @@ async function render(direction = 0) {
     await Promise.all([...previews, ...renderTasks.map(task => task.promise)]);
     if (version !== renderVersion) return;
     renderTasks = [];
-    if (direction > 0) canvases.at(-1).className = 'forward';
-    if (direction < 0) canvases[0].className = 'backward';
+    const outgoing = direction && zoom === 1 && !matchMedia('(prefers-reduced-motion: reduce)').matches
+      ? [...sheet.querySelectorAll(':scope > canvas')].map(canvas => ({
+        canvas,
+        rect: canvas.getBoundingClientRect()
+      }))
+      : [];
     sheet.classList.toggle('open-book', canvases.length === 2);
     sheet.classList.toggle('closed-book', canvases.length === 1);
     sheet.style.setProperty('--binding-x', canvases[0].style.width);
     sheet.replaceChildren(...canvases);
+    if (outgoing.length) animateTurn(outgoing, canvases, direction);
     message();
     if (webPages && zoom > 1) {
       numbers.forEach((number, index) => {
@@ -164,6 +169,66 @@ async function render(direction = 0) {
       message('This page could not be displayed. Try another page.');
     }
   }
+}
+
+function animateTurn(outgoing, incoming, direction) {
+  const forward = direction > 0;
+  const turning = outgoing[forward ? outgoing.length - 1 : 0];
+  const destination = incoming[forward ? 0 : incoming.length - 1];
+  const stationary = outgoing.length === 2 ? outgoing[forward ? 0 : 1] : null;
+  const sheetRect = sheet.getBoundingClientRect();
+  const end = destination.getBoundingClientRect();
+  const start = turning.rect;
+  const startHinge = forward ? start.left : start.right;
+  const endHinge = forward ? end.right : end.left;
+  const options = { duration: 620, easing: 'cubic-bezier(.32,.12,.34,1)', fill: 'both' };
+  const overlay = document.createElement('div');
+  overlay.className = 'turn-overlay';
+  overlay.setAttribute('aria-hidden', 'true');
+  overlay.inert = true;
+
+  function place(element, rect) {
+    element.style.left = rect.left - sheetRect.left + 'px';
+    element.style.top = rect.top - sheetRect.top + 'px';
+    element.style.width = rect.width + 'px';
+    element.style.height = rect.height + 'px';
+  }
+
+  if (stationary) {
+    const rest = document.createElement('div');
+    rest.className = 'turn-rest';
+    place(rest, stationary.rect);
+    rest.append(stationary.canvas);
+    overlay.append(rest);
+  }
+
+  const leaf = document.createElement('div');
+  leaf.className = 'turn-leaf';
+  leaf.style.transformOrigin = forward ? 'left center' : 'right center';
+  place(leaf, start);
+  turning.canvas.classList.add('turn-front');
+  const back = document.createElement('canvas');
+  back.className = 'turn-back';
+  back.width = destination.width;
+  back.height = destination.height;
+  back.getContext('2d').drawImage(destination, 0, 0);
+  leaf.append(turning.canvas, back);
+  overlay.append(leaf);
+  sheet.append(overlay);
+
+  const conceal = destination.animate([{ opacity: 0 }, { opacity: 0 }], options);
+  const motion = leaf.animate([
+    { transform: 'translate(0px, 0px) rotateY(0deg) scale(1, 1)' },
+    { transform: 'translate(' + (endHinge - startHinge) + 'px, ' +
+      (end.top - start.top + (end.height - start.height) / 2) + 'px) rotateY(' +
+      (forward ? -180 : 180) + 'deg) scale(' +
+      end.width / start.width + ', ' + end.height / start.height + ')' }
+  ], options);
+  const finish = () => {
+    conceal.cancel();
+    overlay.remove();
+  };
+  motion.finished.then(finish, finish);
 }
 
 function loadImage(number, size, priority = 'auto') {

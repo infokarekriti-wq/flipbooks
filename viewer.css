@@ -36,14 +36,28 @@ h1 { margin: 0; font-size: clamp(1.1rem, 3vw, 1.35rem); letter-spacing: -.025em;
 }
 #viewport::-webkit-scrollbar { display: none; }
 canvas { display: block; background: #fff; }
-canvas.forward { transform-origin: left center; animation: unfold 520ms ease-out both; }
-canvas.backward { transform-origin: right center; animation: unfold 520ms ease-out both; --angle: -72deg; }
-@keyframes unfold {
-  0% { transform: rotateY(var(--angle, 72deg)); filter: brightness(.78); }
-  65% { filter: brightness(.97); }
+/* A separate, double-sided leaf turns above the stationary spread. */
+.turn-overlay {
+  position: absolute;
+  z-index: 2;
+  inset: 0;
+  pointer-events: none;
+  perspective: 1500px;
 }
-
-@media (prefers-reduced-motion: reduce) { canvas.forward, canvas.backward { animation: none; } }
+.turn-rest, .turn-leaf { position: absolute; }
+.turn-leaf { transform-style: preserve-3d; }
+#sheet .turn-overlay canvas {
+  display: block;
+  width: 100% !important;
+  height: 100% !important;
+  border-radius: 0;
+}
+.turn-leaf canvas {
+  position: absolute;
+  inset: 0;
+  backface-visibility: hidden;
+}
+.turn-back { transform: rotateY(180deg); }
 #status { margin: auto; max-width: 32rem; text-align: center; }
 #sheet:not(:empty) + #status:not([hidden]) {
   position: absolute;
@@ -94,8 +108,8 @@ button:disabled { opacity: .45; cursor: default; }
 }
 #sheet.closed-book::before { inset: 2px -4px -6px 1px; }
 #sheet.closed-book canvas { border-radius: 2px 4px 4px 2px; }
-#sheet.open-book canvas:first-child { border-radius: 3px 0 0 3px; }
-#sheet.open-book canvas:last-child { border-radius: 0 3px 3px 0; }
+#sheet.open-book > canvas:first-child { border-radius: 3px 0 0 3px; }
+#sheet.open-book > canvas:nth-child(2) { border-radius: 0 3px 3px 0; }
 #sheet::after {
   content: '';
   position: absolute;
