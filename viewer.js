@@ -134,6 +134,9 @@ async function openPdf(source) {
   try {
     const engine = await pdfEngine;
     const loadingTask = engine.getDocument({
+		rangeChunkSize: 256 * 1024,
+		disableStream: true,
+		disableAutoFetch: true,
       url: source,
       isEvalSupported: false,
       cMapUrl: pdfModule + 'cmaps/',
