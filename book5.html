@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f4f6f3">
+  <title>SANSKRIT VEENA BHAG - 5</title>
+  <link rel="stylesheet" href="./viewer.css">
+</head>
+<body data-pdf="./books/Book%205.pdf">
+  <section id="preview-message" class="preview-message" role="status">
+    <p>Loading the book…</p>
+  </section>
+  <noscript>Enable JavaScript to read this book.</noscript>
+  <script>
+    const previewMessage = document.querySelector('#preview-message');
+    if (location.protocol === 'file:') {
+      previewMessage.innerHTML = '<h1>Open this book over HTTP</h1>' +
+        '<p>On Windows, double-click <strong>preview-windows.bat</strong> in the flipbooks folder. ' +
+        'Keep that window open and visit <a href="http://127.0.0.1:8000/book5.html">' +
+        'http://127.0.0.1:8000/book5.html</a>.</p>';
+    } else {
+      import('./viewer.js').then(() => previewMessage.remove()).catch(() => {
+        previewMessage.textContent = 'The viewer could not load. Check that viewer.js is beside this HTML file.';
+      });
+    }
+  </script>
+</body>
+</html>
