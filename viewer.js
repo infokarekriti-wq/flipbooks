@@ -1,9 +1,4 @@
 const pdfModule = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/';
-const pdfEngine = import(pdfModule + 'build/pdf.mjs').then(engine => {
-  engine.GlobalWorkerOptions.workerSrc = pdfModule + 'build/pdf.worker.mjs';
-  return engine;
-});
-
 document.body.insertAdjacentHTML('afterbegin', `
   <div class="reader" id="reader">
     <header>
@@ -42,6 +37,9 @@ const pageInput = byId('page');
 const controls = ['previous', 'next', 'page', 'go', 'minus', 'fit', 'plus'];
 
 let pdf;
+let webPages;
+let webFolder;
+let nextPreview = 0;
 let renderTasks = [];
 let renderVersion = 0;
 let page = 1;
@@ -55,10 +53,26 @@ function message(text = '') {
   status.hidden = !text;
 }
 
+function spreadStart(number, total) {
+  if (number === 1 || number === total) return number;
+  return number - number % 2;
+}
+
+function spreadPages(start, total) {
+  if (start === 1 || start + 1 >= total) return [start];
+  return [start, start + 1];
+}
+
+function turnSpread(direction) {
+  if (!pdf) return;
+  const target = direction < 0 ? page - 1 : spreadPages(page, pdf.numPages).at(-1) + 1;
+  goTo(target);
+}
+
 function updateControls() {
   for (const id of controls) byId(id).disabled = !pdf;
   byId('previous').disabled = !pdf || page === 1;
-  byId('next').disabled = !pdf || page + 1 >= pdf.numPages;
+  byId('next').disabled = !pdf || page === pdf.numPages;
   byId('minus').disabled = !pdf || zoom <= 1;
   byId('plus').disabled = !pdf || zoom >= 4;
   viewport.classList.toggle('zoomed', zoom > 1);
@@ -79,18 +93,21 @@ async function render(direction = 0) {
   for (const task of renderTasks) task.cancel();
   renderTasks = [];
   try {
-    const numbers = [page, page + 1].filter(number => number <= pdf.numPages);
-    const pdfPages = await Promise.all(numbers.map(number => pdf.getPage(number)));
+    const numbers = spreadPages(page, pdf.numPages);
+    const pdfPages = webPages ? null : await Promise.all(numbers.map(number => pdf.getPage(number)));
     if (version !== renderVersion) return;
-    const dimensions = pdfPages.map(pdfPage => pdfPage.getViewport({ scale: 1 }));
+    const dimensions = webPages
+      ? numbers.map(number => webPages[number - 1])
+      : pdfPages.map(pdfPage => pdfPage.getViewport({ scale: 1 }));
     const totalWidth = dimensions.reduce((sum, view) => sum + view.width, 0);
     const maxHeight = Math.max(...dimensions.map(view => view.height));
     const style = getComputedStyle(viewport);
     const width = viewport.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
     const height = viewport.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom);
     const scale = Math.max(0.01, Math.min(width / totalWidth, height / maxHeight)) * zoom;
-    const canvases = pdfPages.map((pdfPage, index) => {
-      const view = pdfPage.getViewport({ scale });
+    const previews = [];
+    const canvases = dimensions.map((dimension, index) => {
+      const view = { width: dimension.width * scale, height: dimension.height * scale };
       const density = Math.min(devicePixelRatio || 1, 4096 / Math.max(view.width, view.height));
       const canvas = document.createElement('canvas');
       canvas.width = Math.max(1, Math.floor(view.width * density));
@@ -99,20 +116,40 @@ async function render(direction = 0) {
       canvas.style.height = view.height + 'px';
       canvas.setAttribute('role', 'img');
       canvas.setAttribute('aria-label', 'Page ' + numbers[index] + ' of ' + pdf.numPages);
-      renderTasks.push(pdfPage.render({
+      if (webPages) {
+        previews.push(loadImage(numbers[index], 'preview').then(image => {
+          if (version === renderVersion) paintImage(canvas, image);
+        }));
+      } else renderTasks.push(pdfPages[index].render({
         canvasContext: canvas.getContext('2d'),
-        viewport: view,
+        viewport: pdfPages[index].getViewport({ scale }),
         transform: [canvas.width / view.width, 0, 0, canvas.height / view.height, 0, 0]
       }));
       return canvas;
     });
-    await Promise.all(renderTasks.map(task => task.promise));
+    await Promise.all([...previews, ...renderTasks.map(task => task.promise)]);
     if (version !== renderVersion) return;
     renderTasks = [];
     if (direction > 0) canvases.at(-1).className = 'forward';
     if (direction < 0) canvases[0].className = 'backward';
+    sheet.classList.toggle('open-book', canvases.length === 2);
+    sheet.classList.toggle('closed-book', canvases.length === 1);
+    sheet.style.setProperty('--binding-x', canvases[0].style.width);
     sheet.replaceChildren(...canvases);
     message();
+    if (webPages && zoom > 1) {
+      numbers.forEach((number, index) => {
+        loadImage(number, 'detail').then(image => {
+          if (version === renderVersion) paintImage(canvases[index], image);
+        }).catch(() => {});
+      });
+    }
+    if (webPages && zoom === 1 && page < pdf.numPages && page !== nextPreview) {
+      nextPreview = page;
+      for (const number of spreadPages(numbers.at(-1) + 1, pdf.numPages)) {
+        loadImage(number, 'preview', 'low').catch(() => {});
+      }
+    }
     if (zoomAnchor) {
       const rect = sheet.getBoundingClientRect();
       viewport.scrollBy({
@@ -129,15 +166,51 @@ async function render(direction = 0) {
   }
 }
 
+function loadImage(number, size, priority = 'auto') {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.fetchPriority = priority;
+    image.onload = () => resolve(image);
+    image.onerror = reject;
+    image.src = new URL(size + '/' + number + '.webp', webFolder).href;
+  });
+}
+
+function paintImage(canvas, image) {
+  canvas.getContext('2d').drawImage(image, 0, 0, canvas.width, canvas.height);
+}
+
+async function openBook(source) {
+  const folder = new URL(source.replace(/\.pdf$/i, '') + '/', location.href);
+  try {
+    const response = await fetch(new URL('pages.json', folder));
+    if (!response.ok) throw new Error('Preview unavailable');
+    const pages = await response.json();
+    if (!Array.isArray(pages) || !pages.length || !pages.every(
+      page => Number.isFinite(page?.width) && page.width > 0 &&
+        Number.isFinite(page?.height) && page.height > 0
+    )) throw new Error('Invalid page manifest');
+    webFolder = folder;
+    webPages = pages;
+    pdf = { numPages: pages.length };
+    updateControls();
+    await render();
+  } catch {
+    await openPdf(source);
+  }
+}
+
 async function openPdf(source) {
   message('Opening PDF…');
   try {
-    const engine = await pdfEngine;
+    const engine = await import(pdfModule + 'build/pdf.mjs');
+    engine.GlobalWorkerOptions.workerSrc = pdfModule + 'build/pdf.worker.mjs';
     const loadingTask = engine.getDocument({
-		rangeChunkSize: 256 * 1024,
-		disableStream: true,
-		disableAutoFetch: true,
       url: source,
+      // Fetch visible-page data in larger ranges without downloading ahead.
+      rangeChunkSize: 256 * 1024,
+      disableStream: true,
+      disableAutoFetch: true,
       isEvalSupported: false,
       cMapUrl: pdfModule + 'cmaps/',
       cMapPacked: true,
@@ -153,7 +226,7 @@ async function openPdf(source) {
 
 function goTo(target) {
   if (!pdf || !Number.isInteger(target) || target < 1 || target > pdf.numPages) return;
-  const start = target - (target - 1) % 2;
+  const start = spreadStart(target, pdf.numPages);
   if (start === page) {
     pageInput.value = page;
     return;
@@ -187,8 +260,8 @@ function changeZoom(factor, point) {
   renderLater();
 }
 
-byId('previous').addEventListener('click', () => goTo(page - 2));
-byId('next').addEventListener('click', () => goTo(page + 2));
+byId('previous').addEventListener('click', () => turnSpread(-1));
+byId('next').addEventListener('click', () => turnSpread(1));
 byId('jump').addEventListener('submit', event => {
   event.preventDefault();
   goTo(Number(pageInput.value));
@@ -226,7 +299,7 @@ viewport.addEventListener('pointerup', event => {
   const dx = event.clientX - start.x;
   const dy = event.clientY - start.y;
   if (Math.abs(dx) >= 36 && Math.abs(dx) > Math.abs(dy) * 1.25) {
-    goTo(page + (dx < 0 ? 2 : -2));
+    turnSpread(dx < 0 ? 1 : -1);
   }
 });
 viewport.addEventListener('lostpointercapture', () => { gesture = null; });
@@ -234,7 +307,7 @@ document.addEventListener('keydown', event => {
   if (event.target.matches('input, select, textarea, button') || event.altKey || event.ctrlKey || event.metaKey) return;
   if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
     event.preventDefault();
-    goTo(page + (event.key === 'ArrowRight' ? 2 : -2));
+    turnSpread(event.key === 'ArrowRight' ? 1 : -1);
   }
 });
 const fullscreen = byId('fullscreen');
@@ -253,5 +326,4 @@ document.addEventListener('fullscreenchange', () => {
   fullscreen.setAttribute('aria-label', active ? 'Exit fullscreen' : 'Fullscreen');
 });
 new ResizeObserver(renderLater).observe(viewport);
-pdfEngine.catch(() => message('The PDF reader could not load. Check your internet connection and reload.'));
-openPdf(document.body.dataset.pdf);
+openBook(document.body.dataset.pdf);

@@ -32,15 +32,17 @@ h1 { margin: 0; font-size: clamp(1.1rem, 3vw, 1.35rem); letter-spacing: -.025em;
   overscroll-behavior: contain;
   padding: clamp(8px, 2vw, 20px);
   scrollbar-width: none;
-  background: radial-gradient(ellipse at top, #edf4ef, #dce7df);
+  background: radial-gradient(ellipse at 50% 35%, #ece9e0 15%, #d7d1c3 100%);
 }
 #viewport::-webkit-scrollbar { display: none; }
-#sheet { flex: none; margin: auto; perspective: 1800px; }
-#sheet:empty { display: none; }
-canvas { display: block; background: white; box-shadow: 0 10px 30px #13261a30; }
-canvas.forward { transform-origin: left center; animation: unfold 340ms ease-out both; }
-canvas.backward { transform-origin: right center; animation: unfold 340ms ease-out both; --angle: -38deg; }
-@keyframes unfold { from { transform: rotateY(var(--angle, 38deg)); opacity: .6; } }
+canvas { display: block; background: #fff; }
+canvas.forward { transform-origin: left center; animation: unfold 520ms ease-out both; }
+canvas.backward { transform-origin: right center; animation: unfold 520ms ease-out both; --angle: -72deg; }
+@keyframes unfold {
+  0% { transform: rotateY(var(--angle, 72deg)); filter: brightness(.78); }
+  65% { filter: brightness(.97); }
+}
+
 @media (prefers-reduced-motion: reduce) { canvas.forward, canvas.backward { animation: none; } }
 #status { margin: auto; max-width: 32rem; text-align: center; }
 #sheet:not(:empty) + #status:not([hidden]) {
@@ -69,12 +71,49 @@ button:disabled { opacity: .45; cursor: default; }
 .preview-message { max-width: 38rem; margin: 3rem auto; padding: 0 1rem; }
 
 #sheet {
+  position: relative;
   display: flex;
+  flex: none;
   align-items: flex-start;
-  box-shadow: 0 10px 30px #13261a30;
+  margin: auto;
+  isolation: isolate;
+  perspective: 1500px;
+  border-radius: 3px;
+  box-shadow: 0 12px 22px #2821163d, 0 24px 54px #28211626;
 }
 #sheet:empty { display: none; }
-#sheet canvas { flex: none; box-shadow: none; }
-#sheet canvas + canvas { box-shadow: inset 1px 0 #20383020; }
+#sheet canvas { flex: none; }
+#sheet::before {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  inset: 3px -3px -6px;
+  border-radius: 4px;
+  border: 1px solid #a89c85;
+  background: repeating-linear-gradient(to bottom, #eae2cf 0 1px, #cfc4ad 1px 2px);
+}
+#sheet.closed-book::before { inset: 2px -4px -6px 1px; }
+#sheet.closed-book canvas { border-radius: 2px 4px 4px 2px; }
+#sheet.open-book canvas:first-child { border-radius: 3px 0 0 3px; }
+#sheet.open-book canvas:last-child { border-radius: 0 3px 3px 0; }
+#sheet::after {
+  content: '';
+  position: absolute;
+  z-index: 1;
+  inset-block: 0;
+  pointer-events: none;
+}
+#sheet.open-book::after {
+  left: var(--binding-x);
+  width: min(5%, 36px);
+  transform: translateX(-50%);
+  background: linear-gradient(90deg, transparent, #32261624 38%, #32261640 49%, #fff5 51%, #3226161c 61%, transparent);
+}
+#sheet.closed-book::after {
+  left: 0;
+  width: min(4%, 17px);
+  border-radius: 2px 0 0 2px;
+  background: linear-gradient(90deg, #33241566, #fff4 27%, #33241533 48%, transparent);
+}
 #viewport:not(.zoomed) { touch-action: pan-y pinch-zoom; cursor: grab; }
 #viewport:not(.zoomed):active { cursor: grabbing; }
