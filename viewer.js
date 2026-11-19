@@ -54,12 +54,12 @@ function message(text = '') {
 }
 
 function spreadStart(number, total) {
-  if (number === 1 || number === total) return number;
-  return number - number % 2;
+  if (number <= 2 || number === total) return number;
+  return number - (number + 1) % 2;
 }
 
 function spreadPages(start, total) {
-  if (start === 1 || start + 1 >= total) return [start];
+  if (start <= 2 || start + 1 >= total) return [start];
   return [start, start + 1];
 }
 
@@ -99,7 +99,9 @@ async function render(direction = 0) {
     const dimensions = webPages
       ? numbers.map(number => webPages[number - 1])
       : pdfPages.map(pdfPage => pdfPage.getViewport({ scale: 1 }));
-    const totalWidth = dimensions.reduce((sum, view) => sum + view.width, 0);
+    const blankLeft = page === 2 && page < pdf.numPages;
+    const totalWidth = dimensions.reduce((sum, view) => sum + view.width, 0)
+      + (blankLeft ? dimensions[0].width : 0);
     const maxHeight = Math.max(...dimensions.map(view => view.height));
     const style = getComputedStyle(viewport);
     const width = viewport.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
@@ -136,11 +138,25 @@ async function render(direction = 0) {
         rect: canvas.getBoundingClientRect()
       }))
       : [];
-    sheet.classList.toggle('open-book', canvases.length === 2);
-    sheet.classList.toggle('closed-book', canvases.length === 1);
-    sheet.style.setProperty('--binding-x', canvases[0].style.width);
-    sheet.replaceChildren(...canvases);
-    if (outgoing.length) animateTurn(outgoing, canvases, direction);
+    const sheets = [...canvases];
+    if (blankLeft) {
+      const right = canvases[0];
+      const blank = document.createElement('canvas');
+      blank.width = 1;
+      blank.height = 1;
+      blank.style.width = right.style.width;
+      blank.style.height = right.style.height;
+      blank.setAttribute('aria-hidden', 'true');
+      const context = blank.getContext('2d');
+      context.fillStyle = '#fff';
+      context.fillRect(0, 0, 1, 1);
+      sheets.unshift(blank);
+    }
+    sheet.classList.toggle('open-book', sheets.length === 2);
+    sheet.classList.toggle('closed-book', sheets.length === 1);
+    sheet.style.setProperty('--binding-x', sheets[0].style.width);
+    sheet.replaceChildren(...sheets);
+    if (outgoing.length) animateTurn(outgoing, sheets, direction);
     message();
     if (webPages && zoom > 1) {
       numbers.forEach((number, index) => {
